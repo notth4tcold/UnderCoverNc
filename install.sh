@@ -76,7 +76,10 @@ BIN=target/release/undercovernc
 fi
 
 install -Dm755 "$BIN" "$PREFIX/bin/undercovernc"
-install -Dm644 packaging/undercovernc.desktop "$PREFIX/share/applications/undercovernc.desktop"
+# Caminho completo no atalho: alguns menus (wofi/rofi no Hyprland, por exemplo) não têm
+# ~/.local/bin no PATH e escondem atalhos cujo programa não acham.
+install -dm755 "$PREFIX/share/applications"
+sed "s|^Exec=undercovernc|Exec=$PREFIX/bin/undercovernc|" packaging/undercovernc.desktop > "$PREFIX/share/applications/undercovernc.desktop"
 install -Dm644 packaging/undercovernc.svg "$PREFIX/share/icons/hicolor/scalable/apps/undercovernc.svg"
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 gtk-update-icon-cache -q "$PREFIX/share/icons/hicolor" 2>/dev/null || true
