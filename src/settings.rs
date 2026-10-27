@@ -84,6 +84,14 @@ impl Default for PrintSetup {
     }
 }
 
+/// Última escolha da janela de impressão para uma impressora.
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+#[serde(default)]
+pub struct PrintChoice {
+    pub media: String,
+    pub grayscale: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SlotState {
@@ -106,6 +114,8 @@ pub struct Config {
     pub right: SlotState,
     /// Última versão da lista de formatos padrão já mesclada nos formatos salvos.
     pub formats_version: u32,
+    /// Tipo de papel/qualidade escolhido por impressora.
+    pub print_choices: std::collections::BTreeMap<String, PrintChoice>,
 }
 
 impl Default for Config {
@@ -121,6 +131,7 @@ impl Default for Config {
             left: SlotState { format: "CD Frente".into(), ..Default::default() },
             right: SlotState { format: "CD Verso".into(), ..Default::default() },
             formats_version: 0,
+            print_choices: Default::default(),
         }
     }
 }

@@ -171,6 +171,15 @@ pub fn tr(lang: Lang, s: &'static str) -> &'static str {
         "Volta à lista de formatos original" => "Restore the original format list",
         "Bolso (4 tons)" => "Pocket (4 shades)",
         "Capas grandes:" => "Large covers:",
+        "Papel e qualidade:" => "Paper and quality:",
+        "(o driver não informa tipos de papel)" => "(the driver lists no paper types)",
+        "Cor:" => "Color:",
+        "Colorido" => "Color",
+        "Tons de cinza" => "Grayscale",
+        "Nenhuma impressora encontrada. Veja Arquivo > Configurar impressão." => "No printer found. See File > Print Setup.",
+        "Dica: para capas, papel fotográfico brilhante (glossy) ou semibrilho em qualidade alta fica lindo. Coloque o papel com o lado brilhante para cima." => {
+            "Tip: glossy or semigloss photo paper at high quality looks great for covers. Load the paper shiny side up."
+        }
         "Dividir em várias folhas (para colar)" => "Split across several sheets (to glue)",
         "Salvar modelo em branco (PNG)..." => "Save blank template (PNG)...",
         "Salvar modelo em branco (PNG)" => "Save blank template (PNG)",

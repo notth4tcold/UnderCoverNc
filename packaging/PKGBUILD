@@ -1,7 +1,7 @@
 # Maintainer: Mei <notth4tcold@gmail.com>
 # Build from the repository checkout: cd packaging && makepkg -si
 pkgname=undercovernc
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Impressão de capas de CD/DVD/Blu-ray no tamanho exato, inspirado no UnderCoverXP"
 url="https://github.com/notth4tcold/UnderCoverNc"

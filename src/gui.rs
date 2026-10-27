@@ -7,7 +7,7 @@ use crate::layout::{self, DrawOpts, PageSetup, Prepared, Side};
 use crate::paint::paint_page;
 use crate::pdf;
 use crate::print;
-use crate::settings::{self, Config, Lang, PrintSetup, Skin};
+use crate::settings::{self, Config, Lang, PrintChoice, PrintSetup, Skin};
 use crate::theme::{self, Palette};
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Key, KeyboardShortcut, Layout, Modifiers, Rect, RichText, Sense, Stroke, StrokeKind, TextStyle,
@@ -126,11 +126,27 @@ struct BatchDlg {
     pairs: Vec<(Option<PathBuf>, Option<PathBuf>, bool)>,
 }
 
+/// Janela "Imprimir": o trabalho já montado esperando a escolha de impressora e papel.
+struct PrintDlg {
+    groups: Vec<Vec<CoverJob>>,
+    detect: bool,
+    calibration: bool,
+    title: String,
+    printer: String,
+    printers: Vec<String>,
+    opts: print::PrinterOptions,
+    choice: PrintChoice,
+    copies: u32,
+    pages: usize,
+}
+
+#[derive(Clone)]
 enum ImgSrc {
     Mem(Arc<RgbImage>),
     File(PathBuf),
 }
 
+#[derive(Clone)]
 struct CoverJob {
     side: Side,
     fmt: CoverFormat,
@@ -139,7 +155,7 @@ struct CoverJob {
 }
 
 enum JobKind {
-    Print { printer: String, title: String, copies: u32 },
+    Print { printer: String, title: String, copies: u32, choice: PrintChoice },
     Export(PathBuf),
 }
 
@@ -173,6 +189,7 @@ pub struct App {
     about_open: bool,
     editor: Option<FormatEditor>,
     print_dlg: Option<PrintSetupDlg>,
+    printing: Option<PrintDlg>,
     preview: Option<PreviewDlg>,
     batch: Option<BatchDlg>,
     title_sent: String,
@@ -265,6 +282,7 @@ impl App {
             about_open: false,
             editor: None,
             print_dlg: None,
+            printing: None,
             preview: None,
             batch: None,
             title_sent: String::new(),
@@ -519,14 +537,37 @@ impl App {
     }
 
     fn do_print(&mut self, which: Which) {
-        let Some(printer) = self.printer() else {
-            self.err(self.t("Nenhuma impressora configurada. Veja Arquivo > Configurar impressão."));
-            return;
-        };
         let Some(jobs) = self.cover_jobs(which) else { return };
-        let kind = JobKind::Print { printer, title: self.job_title(which), copies: self.cfg.print.copies };
-        let spec = self.spec(vec![jobs], kind, false);
-        self.start_job(spec);
+        let title = self.job_title(which);
+        self.open_print_dialog(vec![jobs], false, false, title);
+    }
+
+    /// Abre a janela "Imprimir" (impressora, tipo de papel/qualidade, cor, cópias).
+    fn open_print_dialog(&mut self, groups: Vec<Vec<CoverJob>>, detect: bool, calibration: bool, title: String) {
+        let (printers, default) = print::printers();
+        self.default_printer = default;
+        let Some(printer) = self.printer().or_else(|| printers.first().cloned()) else {
+            return self.err(self.t("Nenhuma impressora encontrada. Veja Arquivo > Configurar impressão."));
+        };
+        let opts = print::printer_options(&printer);
+        let fmt_media = groups.iter().flatten().map(|c| c.fmt.media_type.clone()).find(|m| !m.is_empty());
+        let mut choice = self.cfg.print_choices.get(&printer).cloned().unwrap_or_default();
+        if let Some(m) = fmt_media {
+            choice.media = m;
+        }
+        if choice.media.is_empty() || opts.media_label(&choice.media).is_none() {
+            choice.media = opts.media_default.clone();
+        }
+        // Quantas folhas vão sair (só para mostrar).
+        let setup = self.setup();
+        let pages = groups
+            .iter()
+            .map(|g| {
+                let covers: Vec<_> = g.iter().map(|c| (c.side, &c.fmt, None)).collect();
+                layout::plan(&covers, self.cfg.single_page && !calibration, &setup).0.len()
+            })
+            .sum();
+        self.printing = Some(PrintDlg { groups, detect, calibration, title, printer, printers, opts, choice, copies: self.cfg.print.copies, pages });
     }
 
     fn do_export(&mut self, which: Which) {
@@ -559,9 +600,6 @@ impl App {
     }
 
     fn calibration_page(&mut self) {
-        let Some(printer) = self.printer() else {
-            return self.err(self.t("Nenhuma impressora configurada. Veja Arquivo > Configurar impressão."));
-        };
         let mut fmt = CoverFormat { name: "Calibração".into(), markers: vec![], ..self.formats[0].clone() };
         fmt.kind = InternalType::Custom;
         fmt.label = false;
@@ -573,11 +611,93 @@ impl App {
         fmt.markers = format::parse_markers("RECT = (0, 0)(100, 100), SOLID\nLINE = (50, 0)(50, 100), DASHED\nLINE = (0, 50)(100, 50), DASHED").unwrap_or_default();
         let white = Arc::new(RgbImage::from_pixel(2, 2, image::Rgb([255, 255, 255])));
         let job = CoverJob { side: Side::Left, fmt, img: ImgSrc::Mem(white), rotation: 0 };
-        let mut spec = self.spec(vec![vec![job]], JobKind::Print { printer, title: "UnderCoverNc - calibração".into(), copies: 1 }, false);
-        spec.cut_lines = true;
-        spec.single_page = false;
-        spec.setup.correct_area = false;
-        self.start_job(spec);
+        self.open_print_dialog(vec![vec![job]], false, true, "UnderCoverNc - calibração".into());
+    }
+
+    fn print_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut dlg) = self.printing.take() else { return };
+        let p = self.pal;
+        let lang = self.cfg.lang;
+        let t = |s| tr(lang, s);
+        let mut open = true;
+        let (mut go, mut cancel) = (false, false);
+        let mut switch_printer = None;
+        let pt = lang == Lang::Pt;
+        let media_name = |label: &str| if pt { print::media_pt(label) } else { label.to_string() };
+        dialog(ctx, &p, "print", t("Imprimir"), &mut open, 560.0, |ui| {
+            egui::Grid::new("prn").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
+                ui.label(t("Impressora:"));
+                egui::ComboBox::from_id_salt("prn-printer").width(360.0).selected_text(&dlg.printer).show_ui(ui, |ui| {
+                    for pr in &dlg.printers {
+                        if ui.selectable_label(*pr == dlg.printer, pr).clicked() && *pr != dlg.printer {
+                            switch_printer = Some(pr.clone());
+                        }
+                    }
+                });
+                ui.end_row();
+                ui.label(t("Papel e qualidade:"));
+                if dlg.opts.media_types.is_empty() {
+                    ui.label(t("(o driver não informa tipos de papel)"));
+                } else {
+                    let cur = dlg.opts.media_label(&dlg.choice.media).map(media_name).unwrap_or_else(|| dlg.choice.media.clone());
+                    egui::ComboBox::from_id_salt("prn-media").width(360.0).height(420.0).selected_text(cur).show_ui(ui, |ui| {
+                        for (code, label) in &dlg.opts.media_types {
+                            ui.selectable_value(&mut dlg.choice.media, code.clone(), media_name(label));
+                        }
+                    });
+                }
+                ui.end_row();
+                if dlg.opts.color.is_some() {
+                    ui.label(t("Cor:"));
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut dlg.choice.grayscale, false, t("Colorido"));
+                        ui.radio_value(&mut dlg.choice.grayscale, true, t("Tons de cinza"));
+                    });
+                    ui.end_row();
+                }
+                ui.label(t("Cópias:"));
+                ui.add(egui::DragValue::new(&mut dlg.copies).range(1..=99));
+                ui.end_row();
+            });
+            ui.add_space(4.0);
+            let paper = PAPERS.iter().find(|(_, z)| *z == self.cfg.print.paper).map(|(n, _)| tr(lang, n).to_string()).unwrap_or_else(|| {
+                format!("{:.0}×{:.0} mm", self.cfg.print.paper.0, self.cfg.print.paper.1)
+            });
+            ui.label(RichText::new(format!("{} {} · {} {}", dlg.pages, t("página(s)"), t("Papel:"), paper)).size(17.0));
+            ui.label(RichText::new(t("Dica: para capas, papel fotográfico brilhante (glossy) ou semibrilho em qualidade alta fica lindo. Coloque o papel com o lado brilhante para cima.")).size(16.0));
+            ui.add_space(6.0);
+            ui.allocate_ui_with_layout(vec2(ui.available_width(), 34.0), Layout::right_to_left(Align::Center), |ui| {
+                if theme::button(ui, &p, t("Cancelar"), true, 100.0).clicked() {
+                    cancel = true;
+                }
+                if theme::button(ui, &p, t("Imprimir"), self.job.is_none(), 110.0).clicked() {
+                    go = true;
+                }
+            });
+        });
+        if let Some(pr) = switch_printer {
+            dlg.opts = print::printer_options(&pr);
+            dlg.choice = self.cfg.print_choices.get(&pr).cloned().unwrap_or_default();
+            if dlg.opts.media_label(&dlg.choice.media).is_none() {
+                dlg.choice.media = dlg.opts.media_default.clone();
+            }
+            dlg.printer = pr;
+        }
+        if go {
+            self.cfg.print_choices.insert(dlg.printer.clone(), dlg.choice.clone());
+            let kind = JobKind::Print { printer: dlg.printer.clone(), title: dlg.title.clone(), copies: dlg.copies, choice: dlg.choice.clone() };
+            let mut spec = self.spec(std::mem::take(&mut dlg.groups), kind, dlg.detect);
+            if dlg.calibration {
+                spec.cut_lines = true;
+                spec.single_page = false;
+                spec.setup.correct_area = false;
+            }
+            self.start_job(spec);
+            return;
+        }
+        if open && !cancel {
+            self.printing = Some(dlg);
+        }
     }
 
     fn poll_job(&mut self) {
@@ -1262,19 +1382,11 @@ impl App {
                         .collect()
                 })
                 .collect();
-            let kind = if print_it {
-                match self.printer() {
-                    Some(printer) => Some(JobKind::Print { printer, title: self.job_title(Which::Both), copies: self.cfg.print.copies }),
-                    None => {
-                        self.err(t("Nenhuma impressora configurada. Veja Arquivo > Configurar impressão."));
-                        None
-                    }
-                }
-            } else {
-                rfd::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name("lote.pdf").save_file().map(JobKind::Export)
-            };
-            if let Some(kind) = kind {
-                let spec = self.spec(groups, kind, true);
+            if print_it {
+                let title = self.job_title(Which::Both);
+                self.open_print_dialog(groups, true, false, title);
+            } else if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).set_file_name("lote.pdf").save_file() {
+                let spec = self.spec(groups, JobKind::Export(path), true);
                 self.start_job(spec);
             }
         }
@@ -1511,9 +1623,9 @@ impl App {
                     let f = &mut ed.list[sel];
                     pos_group(ui, &p, t("Posição direita"), &mut f.right_pos, inches, lang);
                     ui.label(t("Tipo de mídia da impressora:"));
-                    choice_combo(ui, "media", &mut f.media_type, &ed.printer_opts.media_types, t("(padrão)"));
+                    choice_combo(ui, "media", &mut f.media_type, &ed.printer_opts.media_types, t("(padrão)"), lang == Lang::Pt);
                     ui.label(t("Bandeja / origem do papel:"));
-                    choice_combo(ui, "source", &mut f.paper_source, &ed.printer_opts.sources, t("(padrão)"));
+                    choice_combo(ui, "source", &mut f.paper_source, &ed.printer_opts.sources, t("(padrão)"), false);
                     ui.add_space(4.0);
                     theme::group(ui, &p, t("Unidades"), |ui| {
                         ui.radio_value(&mut inches_new, true, t("Polegadas"));
@@ -1622,12 +1734,17 @@ fn commit_markers(ed: &mut FormatEditor) -> bool {
     }
 }
 
-fn choice_combo(ui: &mut Ui, id: &str, v: &mut String, choices: &[String], default: &str) {
-    let shown = if v.is_empty() { default.to_string() } else { v.clone() };
+fn choice_combo(ui: &mut Ui, id: &str, v: &mut String, choices: &[(String, String)], default: &str, pt: bool) {
+    let name = |l: &str| if pt { print::media_pt(l) } else { l.to_string() };
+    let shown = if v.is_empty() {
+        default.to_string()
+    } else {
+        choices.iter().find(|(c, _)| c == v).map(|(_, l)| name(l)).unwrap_or_else(|| v.clone())
+    };
     egui::ComboBox::from_id_salt(id).width(200.0).selected_text(shown).show_ui(ui, |ui| {
         ui.selectable_value(v, String::new(), default);
-        for c in choices {
-            ui.selectable_value(v, c.clone(), c);
+        for (c, l) in choices {
+            ui.selectable_value(v, c.clone(), name(l));
         }
     });
 }
@@ -1759,20 +1876,22 @@ fn run_job(spec: JobSpec, lang: Lang) -> anyhow::Result<String> {
             std::fs::write(path, &pdf)?;
             Ok(format!("{} {} ({} {}){warn}", tr(lang, "PDF salvo:"), path.display(), pages.len(), tr(lang, "página(s)")))
         }
-        JobKind::Print { printer, title, copies } => {
-            let dir = settings::cache_dir();
-            std::fs::create_dir_all(&dir)?;
-            let path = dir.join("impressao.pdf");
+        JobKind::Print { printer, title, copies, choice } => {
+            let path = std::env::temp_dir().join(format!("undercovernc-{}.pdf", std::process::id()));
             std::fs::write(&path, &pdf)?;
             let job = print::Job {
                 printer,
                 title,
                 copies: *copies,
                 paper: pages.first().map(|p| p.size).unwrap_or(spec.setup.paper),
-                media_type: first.map(|f| f.media_type.as_str()).unwrap_or(""),
+                media_type: if choice.media.is_empty() { first.map(|f| f.media_type.as_str()).unwrap_or("") } else { &choice.media },
                 paper_source: first.map(|f| f.paper_source.as_str()).unwrap_or(""),
+                grayscale: choice.grayscale,
             };
-            let out = print::print_pdf(&path, &job)?;
+            // O lp copia o arquivo para a fila do CUPS, então o PDF temporário pode sumir logo.
+            let out = print::print_pdf(&path, &job);
+            let _ = std::fs::remove_file(&path);
+            let out = out?;
             Ok(format!("{} {printer} ({} {}). {out}{warn}", tr(lang, "Enviado para"), pages.len(), tr(lang, "página(s)")))
         }
     }
@@ -1818,6 +1937,7 @@ impl eframe::App for App {
 
         self.options_dialog(ctx);
         self.print_setup_dialog(ctx);
+        self.print_dialog(ctx);
         self.preview_dialog(ctx);
         self.format_editor(ctx);
         self.batch_dialog(ctx);
