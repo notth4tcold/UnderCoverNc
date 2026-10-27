@@ -1,0 +1,39 @@
+[package]
+name = "undercovernc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Impressão de capas de CD/DVD/Blu-ray no tamanho exato, inspirado no UnderCoverXP"
+license = "MIT"
+repository = "https://github.com/notth4tcold/UnderCoverNc"
+
+[dependencies]
+ab_glyph = "0.2.32"
+anyhow = "1"
+arboard = { version = "3", default-features = false, features = ["wayland-data-control", "image-data"] }
+dirs = "6"
+eframe = "0.33.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp", "tiff"] }
+rfd = "0.17.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[package.metadata.deb]
+name = "undercovernc"
+maintainer = "Mei <notth4tcold@gmail.com>"
+extended-description = "Imprime capas de CD, DVD, Blu-ray e jogos no tamanho exato, com linhas de corte e dobra, editor de formatos e visual retrô. Inspirado no UnderCoverXP."
+section = "graphics"
+depends = "$auto, libxkbcommon0, libwayland-client0, libgl1, xdg-desktop-portal, cups-client"
+assets = [
+    ["target/release/undercovernc", "usr/bin/", "755"],
+    ["packaging/undercovernc.desktop", "usr/share/applications/", "644"],
+    ["packaging/undercovernc.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+]

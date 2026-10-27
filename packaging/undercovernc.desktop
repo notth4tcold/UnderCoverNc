@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=UnderCoverNc
+GenericName=Impressão de capas
+Comment=Imprime capas de CD, DVD, Blu-ray e jogos no tamanho exato (estilo UnderCoverXP)
+Exec=undercovernc %F
+Icon=undercovernc
+Terminal=false
+Categories=Graphics;Printing;Utility;
+MimeType=image/jpeg;image/png;image/bmp;image/gif;image/webp;image/tiff;
+Keywords=capa;cover;cd;dvd;bluray;encarte;imprimir;print;undercover;ps1;playstation;
+StartupWMClass=undercovernc

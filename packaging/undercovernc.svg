@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
+  <defs>
+    <linearGradient id="r" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d6dcea"/>
+      <stop offset="0.45" stop-color="#ffb3e6"/>
+      <stop offset="0.6" stop-color="#a6f0ff"/>
+      <stop offset="1" stop-color="#d6dcea"/>
+    </linearGradient>
+  </defs>
+  <circle cx="12" cy="12.5" r="10.6" fill="url(#r)" stroke="#2b2b40" stroke-width="1.2"/>
+  <circle cx="12" cy="12" r="2.2" fill="#eceef6"/>
+  <circle cx="12" cy="12" r="1.1" fill="#2b2b40"/>
+  <rect x="5" y="11" width="2" height="3" fill="#1a1a2e"/>
+  <rect x="5" y="11" width="1" height="1" fill="#fff"/>
+  <rect x="17" y="11" width="2" height="3" fill="#1a1a2e"/>
+  <rect x="17" y="11" width="1" height="1" fill="#fff"/>
+  <rect x="3" y="15" width="2" height="1" fill="#ff8fb1"/>
+  <rect x="19" y="15" width="2" height="1" fill="#ff8fb1"/>
+  <path d="M10 15h1v1h-1zM11 16h1v1h-1zM12 15h1v1h-1zM13 16h1v1h-1zM14 15h1v1h-1z" fill="#7a2040"/>
+  <path d="M15 0h2v1h1v1h1V1h1V0h2v5h-2V4h-1V3h-1v1h-1v1h-2z" fill="#ff71ce"/>
+  <rect x="18" y="2" width="1" height="1" fill="#c4288c"/>
+</svg>
